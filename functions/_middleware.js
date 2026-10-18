@@ -1,35 +1,86 @@
-// Cloudflare Pages Function: live reverse proxy for the main public website.
-// This is NOT a complete proxy for authenticated apps or other subdomains.
-const ORIGIN = 'https://geagroupau.com';
 
-export async function onRequest({ request }) {
-  const incoming = new URL(request.url);
-  const upstream = new URL(incoming.pathname + incoming.search, ORIGIN);
+const ORIGIN = "https://geagroupau.com";
+
+const SERVICE_HOSTS = {
+  "geagroupau.com": "geagroupau.lockleytimmy.workers.dev",
+  "manager.geagroupau.com": "manager-geagroupau.lockleytimmy.workers.dev",
+  "nextcloud.geagroupau.com": "nextcloud-geagroupau.lockleytimmy.workers.dev",
+  "portainer.geagroupau.com": "portainer-geagroupau.lockleytimmy.workers.dev",
+  "homepage.geagroupau.com": "homepage-geagroupau.lockleytimmy.workers.dev"
+};
+
+export async function onRequest(context) {
+  const request = context.request;
+  const incomingUrl = new URL(request.url);
+  const targetUrl = new URL(
+    incomingUrl.pathname + incomingUrl.search,
+    ORIGIN
+  );
+
   const headers = new Headers(request.headers);
-  headers.delete('host');
-  // Do not forward browser cookies for the mirror host to the upstream domain.
-  headers.delete('cookie');
-  headers.delete('authorization');
-  const method = request.method;
-  const response = await fetch(upstream.toString(), {
-    method,
+  headers.delete("host");
+
+  const response = await fetch(targetUrl.toString(), {
+    method: request.method,
     headers,
-    body: method === 'GET' || method === 'HEAD' ? undefined : request.body,
-    redirect: 'manual'
+    body: ["GET", "HEAD"].includes(request.method)
+      ? undefined
+      : request.body,
+    redirect: "manual"
   });
+
   const outputHeaders = new Headers(response.headers);
-  // Prevent origin-domain cookies being set on the mirror host.
-  outputHeaders.delete('set-cookie');
-  const location = outputHeaders.get('location');
-  if (location) {
-    const resolved = new URL(location, upstream);
-    if (resolved.origin === ORIGIN) {
-      resolved.protocol = incoming.protocol;
-      resolved.host = incoming.host;
-      outputHeaders.set('location', resolved.toString());
+
+  function rewriteUrl(value) {
+    if (!value) return value;
+
+    try {
+      const url = new URL(value, ORIGIN);
+      const replacement = SERVICE_HOSTS[url.hostname];
+
+      if (!replacement || !["http:", "https:"].includes(url.protocol)) {
+        return value;
+      }
+
+      url.protocol = "https:";
+      url.hostname = replacement;
+      url.port = "";
+
+      return url.toString();
+    } catch {
+      return value;
     }
   }
-  // Avoid embedding this mirror in third-party frames.
-  outputHeaders.set('x-content-type-options', 'nosniff');
-  return new Response(response.body, { status: response.status, headers: outputHeaders });
+
+  const location = outputHeaders.get("location");
+  if (location) {
+    outputHeaders.set("location", rewriteUrl(location));
+  }
+
+  const result = new Response(response.body, {
+    status: response.status,
+    headers: outputHeaders
+  });
+
+  const contentType = result.headers.get("content-type") || "";
+
+  if (!contentType.includes("text/html")) {
+    return result;
+  }
+
+  class LinkRewriter {
+    element(element) {
+      for (const attribute of ["href", "action"]) {
+        const value = element.getAttribute(attribute);
+        if (value) {
+          element.setAttribute(attribute, rewriteUrl(value));
+        }
+      }
+    }
+  }
+
+  return new HTMLRewriter()
+    .on("a[href]", new LinkRewriter())
+    .on("form[action]", new LinkRewriter())
+    .transform(result);
 }

@@ -6,8 +6,7 @@ const SERVICE_HOSTS = {
   "geagroupau.com": "geagroupau.pages.dev",
   "manager.geagroupau.com": "manager-geagroupau.lockleytimmy.workers.dev",
   "nextcloud.geagroupau.com": "nextcloud-geagroupau.lockleytimmy.workers.dev",
-  "portainer.geagroupau.com": "portainer-geagroupau.lockleytimmy.workers.dev",
-  "homepage.geagroupau.com": "homepage-geagroupau.lockleytimmy.workers.dev"
+  "portainer.geagroupau.com": "portainer-geagroupau.lockleytimmy.workers.dev"
 };
 
 export async function onRequest(context) {
